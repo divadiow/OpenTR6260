@@ -218,7 +218,7 @@ int32_t pwm_config(uint32_t channel, uint32_t freq, uint32_t duty_ratio)
 	uint32_t base, num, flags;
 	int32_t rnt = 0;
 
-	if(channel >= PMW_CHANNEL_MAC || duty_ratio <= 0 || duty_ratio >=1000)
+	if(channel >= PMW_CHANNEL_MAC || duty_ratio < 0 || duty_ratio > 1000)
 	{
 		return DRV_ERR_INVALID_PARAM;
 	}
