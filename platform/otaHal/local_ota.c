@@ -1344,7 +1344,14 @@ int local_ota_scan_wifi(void)
     int find_ssid = 0;
     
     memset((void *)ssid_buf, 0, 32);
-    memcpy(ssid_buf, CONFIG_LOCAL_OTA_SSID, strlen(CONFIG_LOCAL_OTA_SSID));
+    {
+        size_t n = strlen(CONFIG_LOCAL_OTA_SSID);
+        if (n >= sizeof(ssid_buf)) {
+            n = sizeof(ssid_buf) - 1;
+        }
+        memcpy(ssid_buf, CONFIG_LOCAL_OTA_SSID, n);
+        ssid_buf[n] = 0;
+    }
     wifi_scan_config_t scan_cfg;
     memset((void *)&scan_cfg, 0, sizeof(wifi_scan_config_t));
     scan_cfg.ssid = ssid_buf;

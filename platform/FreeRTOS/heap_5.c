@@ -412,7 +412,7 @@ void *pvPortReMalloc(void *pvOld, size_t xNewSize)
     }
 
     if (!(pvNew = pvPortMalloc(xNewSize))) {
-        return NULL; // should free pvOld here?
+        return NULL;
     }
     
     puc -= xHeapStructSize;
