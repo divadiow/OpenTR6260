@@ -1950,12 +1950,16 @@ int partion_info_get(char *key, unsigned int *addr, unsigned int * length)
 		for (i=0; i<partionDev.num; i++)
 		{
 			pPartion = &partionDev.partion[i];
-			if (!(strncmp(key, pPartion->key, strlen(pPartion->key)) == 0 &&
-             (key[strlen(pPartion->key)] == '\0' || key[strlen(pPartion->key)] == '_' || key[strlen(pPartion->key)] == '.'))
+			size_t klen = strlen(pPartion->key);
+			if (strncmp(key, pPartion->key, klen) == 0)
 			{
-				base = pPartion->base;
-				len = pPartion->length;
-				break;
+				char next = key[klen];
+				if (next == '\0' || next == '_' || next == '.')
+				{
+					base = pPartion->base;
+					len = pPartion->length;
+					break;
+				}
 			}
 		}
 
