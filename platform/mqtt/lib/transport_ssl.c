@@ -130,7 +130,7 @@ static int ssl_connect(transport_handle_t t, const char *host, int port, int tim
     setsockopt(ssl->client_fd.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     system_printf("Connect to %s:%d", host, port);
     char port_str[8] = {0};
-    sprintf(port_str, "%d", port);
+    snprintf(port_str, sizeof(port_str), "%d", port);
     if ((ret = mbedtls_net_connect(&ssl->client_fd, host, port_str, MBEDTLS_NET_PROTO_TCP)) != 0) {
         system_printf("mbedtls_net_connect returned -%x", -ret);
         goto exit;

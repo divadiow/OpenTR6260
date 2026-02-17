@@ -14,6 +14,9 @@
 #include "lwip/netdb.h"
 #include "lwip/sockets.h"
 #include "stdio.h"
+#include <string.h>
+#include <stdarg.h>
+#include <stdlib.h>
 #include "system_event.h"
 #include "otaHal.h"
 
@@ -231,6 +234,10 @@ static char* ota_strdup(const char* str)
       size_t len;
       char* copy;
 
+      if (str == NULL) {
+          return NULL;
+      }
+
       len = strlen(str) + 1;
       if (!(copy = (char*)os_malloc(len))) return 0;
       memcpy(copy,str,len);
@@ -239,35 +246,43 @@ static char* ota_strdup(const char* str)
 static int ota_get_port_from_url(char* addr)
 {
     int port = OTA_SERVER_PORT;
-        
-    if(addr == 0)
-    {
+
+    if (addr == NULL) {
         return port;
     }
 
-    char *path_abs = strstr(addr, "http://");
-    if(path_abs){
-        path_abs = path_abs + strlen("http://");
-    }
-    path_abs = ota_strdup(path_abs); 
-
-    char *port_index = strchr(path_abs, '/');
-    if(port_index){
-        *port_index = 0x00;
-    }
-    
-    port_index = strchr(path_abs, ':');
-    if(port_index)
-    {
-        port = atoi(port_index + 1);
-    
+    /* Support http://, https://, or bare host[:port][/path] */
+    const char *p = addr;
+    if (strncmp(addr, "http://", strlen("http://")) == 0) {
+        p = addr + strlen("http://");
+        port = 80;
+    } else if (strncmp(addr, "https://", strlen("https://")) == 0) {
+        p = addr + strlen("https://");
+        port = 443;
     }
 
-    OTA_DEBUG("get_port_from_url,port: %d,  path: %s\n", port, path_abs);
-    
-    os_free(path_abs);
+    char *tmp = ota_strdup(p);
+    if (!tmp) {
+        return port;
+    }
+
+    /* Trim path */
+    char *slash = strchr(tmp, '/');
+    if (slash) {
+        *slash = 0;
+    }
+
+    /* Extract port if present */
+    char *colon = strchr(tmp, ':');
+    if (colon) {
+        port = atoi(colon + 1);
+    }
+
+    OTA_DEBUG("get_port_from_url,port: %d,  host: %s
+", port, tmp);
+
+    os_free(tmp);
     return port;
-
 }
 
 static char* ota_get_host_from_url(char* addr)
@@ -276,30 +291,34 @@ static char* ota_get_host_from_url(char* addr)
     int len  = 0;
     char* host = NULL;
     char* pAddr = NULL;
-    
-    if(addr == NULL){
+
+    if (addr == NULL) {
         return NULL;
     }
-    pAddr = strstr(addr, "http://");
-    
-    if(pAddr){
+
+    if (strncmp(addr, "http://", strlen("http://")) == 0) {
         pAddr = addr + strlen("http://");
-    }else{
+    } else if (strncmp(addr, "https://", strlen("https://")) == 0) {
+        pAddr = addr + strlen("https://");
+    } else {
         pAddr = addr;
     }
+
     len = strlen(pAddr);
-    
-    for(i = 0; i < len; i++){
-        if(pAddr[i] == '/' || pAddr[i] == ':'){
+
+    for (i = 0; i < len; i++) {
+        if (pAddr[i] == '/' || pAddr[i] == ':') {
             break;
         }
     }
-    
-    host = os_malloc(i + 2 );
-    memset(host, 0, i + 2);
-    memcpy(host, pAddr, i);
-    return host;
 
+    host = os_malloc((size_t)i + 2);
+    if (!host) {
+        return NULL;
+    }
+    memset(host, 0, (size_t)i + 2);
+    memcpy(host, pAddr, (size_t)i);
+    return host;
 }
 void ota_http_request_ctx_destroy()
 {
@@ -399,39 +418,80 @@ static sys_err_t ota_http_request_ctx_create()
 }
 /* HTTP协议的请求行 */
 /* GET /Content/WifiDeviceVersionFile/154217939399600372.rbl HTTP/1.1 */
+
+/* Maximum request buffer size used by OTA HTTP request builder. */
+#ifndef OTA_HTTP_REQ_MAX_LEN
+#define OTA_HTTP_REQ_MAX_LEN 2048
+#endif
+
+static int ota_req_append(char *buf, size_t cap, const char *fmt, ...)
+{
+    if (!buf || cap == 0 || !fmt) {
+        return -1;
+    }
+    size_t off = strlen(buf);
+    if (off >= cap) {
+        buf[cap - 1] = 0;
+        return -1;
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf + off, cap - off, fmt, ap);
+    va_end(ap);
+    if (n < 0) {
+        return -1;
+    }
+    if ((size_t)n >= (cap - off)) {
+        /* Truncated */
+        buf[cap - 1] = 0;
+        return -1;
+    }
+    return 0;
+}
+
 static void ota_create_http_request_Line(char *req_data, const char *method, const char *resource)
 {
-    sprintf(req_data, "%s %s %s", method, resource, "HTTP/1.1\r\n");
+    if (!req_data || !method || !resource) {
+        return;
+    }
+    /* Always start a fresh request */
+    snprintf(req_data, OTA_HTTP_REQ_MAX_LEN, "%s %s HTTP/1.1\r\n", method, resource);
 }
 /* HOST: download.hismarttv.com:8080 */
 static void ota_create_http_request_header_Host(char *req_data, const char *host, const int port)
 {
-    os_strcat(req_data, "Host: ");
-    strcat(req_data, host);
-    if(port != 80)
-    {
-        char tmp[10];
-        strcat(req_data, ":");
-        sprintf(tmp, "%d", port);
-        strcat(req_data, tmp);
+    if (!req_data || !host) {
+        return;
     }
-    strcat(req_data, "\r\n");
+    ota_req_append(req_data, OTA_HTTP_REQ_MAX_LEN, "Host: %s", host);
+    if (port != 80) {
+        ota_req_append(req_data, OTA_HTTP_REQ_MAX_LEN, ":%d", port);
+    } else if ((port == 443) && (strstr(host, ":") == NULL)) {
+        /* Preserve explicit 443 if provided via config */
+        /* (No-op: host already includes it if needed) */
+        (void)0;
+    }
+    ota_req_append(req_data, OTA_HTTP_REQ_MAX_LEN, "
+");
 }
 /* HTTP的TCP连接，保持长连接，不关闭 */
 static void ota_create_http_request_header_Connection(char *req_data)
 {
-    strcat(req_data, "Connection: Keep-Alive\r\n");
+    if (!req_data) return;
+    ota_req_append(req_data, OTA_HTTP_REQ_MAX_LEN, "Connection: Keep-Alive\r\n");
 }
 /* 文件传输类型 */
 static void ota_create_http_request_header_ContentType(char *req_data)
 {
-    strcat(req_data, "Content-Type: application/x-www-form-urlencoded\r\n");
+    if (!req_data) return;
+    ota_req_append(req_data, OTA_HTTP_REQ_MAX_LEN, "Content-Type: application/x-www-form-urlencoded\r\n");
 }
 /* Range: bytes=204800-307200/433769 */
 /* HTTP利用Range实现断点续传，在socket断开之后，下次重连时，从断点继续传输剩下的ver文件 */
 static void ota_create_http_request_header_Range(char *req_data, int receive_len)
 {
-    sprintf(req_data + strlen(req_data), "Range: bytes=%d-\r\n", receive_len);
+    if (!req_data) return;
+    ota_req_append(req_data, OTA_HTTP_REQ_MAX_LEN, "Range: bytes=%d-\r\n", receive_len);
 }
 
 /* HTTP协议的请求头 */
@@ -447,7 +507,8 @@ static void ota_create_http_request_header(char *req_data, const char *host, int
         ota_create_http_request_header_Range(req_data, receive_len);
     }
     
-    strcat(req_data, "\r\n");
+    ota_req_append(req_data, OTA_HTTP_REQ_MAX_LEN, "
+");
     
     OTA_DEBUG("\r\n ====================== \r\nrequest head send to server:\r\n%s\r\n======================\r\n", req_data);    
 }
@@ -1249,10 +1310,16 @@ int local_ota_version_info_register(char * version)
 
     for(i = 0; i < len; i++) {
         if(version[i] == '.') {
+            if ((j + 1) >= CONFIG_LOCAL_OTA_VERSION_NUM) {
+                return -1;
+            }
             j += 1;
             continue;
         }
         if((version[i] < 0x30) || (version[i] > 0x39)) {
+            return -1;
+        }
+        if (j >= CONFIG_LOCAL_OTA_VERSION_NUM) {
             return -1;
         }
         buf[j] = buf[j] * 10 + (version[i] - 48);

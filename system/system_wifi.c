@@ -43,11 +43,33 @@
 /****************************************************************************
 * 	                                           Local Macros
 ****************************************************************************/
-#define  WIFI_CMD_LEN  						 100
+#define  WIFI_CMD_LEN                         256
 #define  CHIP_TYPE_ADDR_EFUSE		 		 4
 #define  MAC_OTP_ADDR_GD25Q80E_FLASH 		 0x1030
 #define  read_mac_valid                      0x0
 #define  SCAN_DELAY_TIMEMS                   (1500)
+/* Escape characters that would break wpa_cli-like quoted values. */
+static size_t wifi_escape_wpa_cli_value(char *dst, size_t dst_len, const char *src)
+{
+    size_t w = 0;
+    if (!dst || dst_len == 0) return 0;
+    if (!src) { dst[0] = 0; return 0; }
+
+    while (*src) {
+        char c = *src++;
+        /* Escape backslash and double-quote inside quoted arguments. */
+        if ((c == '\\' || c == '"')) {
+            if (w + 2 >= dst_len) break;
+            dst[w++] = '\\';
+            dst[w++] = c;
+        } else {
+            if (w + 1 >= dst_len) break;
+            dst[w++] = c;
+        }
+    }
+    dst[w] = 0;
+    return w;
+}
 /****************************************************************************
 * 	                                           Local Types
 ****************************************************************************/
@@ -406,27 +428,33 @@ int wifi_add_config(int vif)
 int wifi_config_ssid(int vif, unsigned char *ssid)
 {
 	char buf[WIFI_CMD_LEN] = {0};
-	char *pos = buf, *end = buf + WIFI_CMD_LEN - 1;
+	char *pos = buf;
+	char *end = buf + WIFI_CMD_LEN - 1;
 	int i = 0;
-    
-    if (!ssid || !ssid[0])
-        return -1;
 
-    sprintf(buf, "%s", "set_network 0 ssid ");
-    pos += strlen(buf);
-    while (pos != end && ssid[i] != '\0' && i < WIFI_SSID_MAX_LEN) {
-        sprintf(pos, "%2X", ssid[i++]);
-        pos += 2;
-    }
-        
-    return wifi_ctrl_iface(vif, buf);
+	if (!ssid || !ssid[0])
+		return -1;
+
+	/* Build: set_network 0 ssid <HEX> */
+	int n = snprintf(buf, sizeof(buf), "%s", "set_network 0 ssid ");
+	if (n < 0) return -1;
+	pos = buf + ((n < (int)sizeof(buf)) ? n : (int)sizeof(buf) - 1);
+
+	while ((pos + 2) < end && ssid[i] != '\0' && i < WIFI_SSID_MAX_LEN) {
+		int w = snprintf(pos, (size_t)(end - pos + 1), "%02X", ssid[i++]);
+		if (w != 2) break;
+		pos += 2;
+	}
+
+	*pos = 0;
+	return wifi_ctrl_iface(vif, buf);
 }
 
 int wifi_config_hidden_ssid(int vif, uint8_t hidden)
 {
     char buf[WIFI_CMD_LEN] = {0};
 
-    sprintf(buf, "set_network %d ignore_broadcast_ssid %d", 0, hidden ? 1 : 0);
+    snprintf(buf, sizeof(buf), "set_network %d ignore_broadcast_ssid %d", 0, hidden ? 1 : 0);
     return wifi_ctrl_iface(vif, buf);
 }
 
@@ -434,7 +462,7 @@ int wifi_config_ap_mode(int vif)
 {
     char buf[32] = {0};
 
-    sprintf(buf, "set_network %d mode 2", 0);
+    snprintf(buf, sizeof(buf), "set_network %d mode 2", 0);
     return wifi_ctrl_iface(vif, buf);
 }
 
@@ -455,7 +483,7 @@ int wifi_config_commit(int vif)
 {
     char buf[32] = {0};
 
-    sprintf(buf, "select_network %d", 0);
+    snprintf(buf, sizeof(buf), "select_network %d", 0);
     return wifi_ctrl_iface(vif, buf);
 }
 
@@ -553,13 +581,13 @@ sys_err_t wifi_sta_auto_conn_conf(uint8_t *val,uint8_t type)
 	/*type =0:write 1:read */
 	if(type == 0)
 	{
-		if(ef_set_env_blob(NV_WIFI_AUTO_CONN, val, sizeof(val)))
+		if(ef_set_env_blob(NV_WIFI_AUTO_CONN, val, 1))
 		{
 			return SYS_ERR;
 		}
 	}
 	else 
-		ef_get_env_blob(NV_WIFI_AUTO_CONN,val, sizeof(val), NULL);
+		ef_get_env_blob(NV_WIFI_AUTO_CONN, val, 1, NULL);
 	return SYS_OK;
 }
 
@@ -737,7 +765,7 @@ static sys_err_t wifi_set_psk(unsigned char type, unsigned char *psk, unsigned c
 		wifi_ctrl_iface(STATION_IF, "set_network 0 key_mgmt NONE");//OPEN
 		if(type==1) 
 		{
-			sprintf(buf, "set_network 0 wep_key0 \"%s\"", psk);//WEP
+			snprintf(buf, sizeof(buf), "set_network 0 wep_key0 \"%s\"", tmp); // WEP
 			wifi_ctrl_iface(STATION_IF, buf);
 		}
 	}
@@ -754,7 +782,7 @@ static sys_err_t wifi_set_psk(unsigned char type, unsigned char *psk, unsigned c
 			wifi_ctrl_iface(STATION_IF, "set_network 0 pairwise CCMP");
 			wifi_ctrl_iface(STATION_IF, "set_network 0 group CCMP TKIP");
 		}
-		sprintf(buf, "set_network 0 psk \"%s\"", tmp); // AUTO
+		snprintf(buf, sizeof(buf), "set_network 0 psk \"%s\"", tmp); // AUTO
 		wifi_ctrl_iface(STATION_IF, buf);
 	}
 	return SYS_OK;
@@ -803,18 +831,18 @@ sys_err_t wifi_set_password(int vif, char *password)
 		if(password_len == 5)
 		{
 			wifi_ctrl_iface(vif, "set_network 0 key_mgmt NONE");
-			sprintf(buf, "set_network 0 wep_key0 \"%s\"", password);
+			snprintf(buf, sizeof(buf), "set_network 0 wep_key0 \"%s\"", password);
 		}
 		else
 		{
 			if(password_len == 64)
-				sprintf(buf, "set_network 0 psk %.*s", password_len, password);
+				snprintf(buf, sizeof(buf), "set_network 0 psk %.*s", password_len, password);
 			else	
-				sprintf(buf, "set_network 0 psk \"%s\"", password);
+				snprintf(buf, sizeof(buf), "set_network 0 psk \"%s\"", password);
 		}
 	}
 	else
-        sprintf(buf, "set_network 0 key_mgmt NONE");
+        snprintf(buf, sizeof(buf), "set_network 0 key_mgmt NONE");
 	return wifi_ctrl_iface(vif, buf);
 }
 
@@ -822,7 +850,7 @@ sys_err_t wifi_set_bssid(uint8_t *bssid)
 {
     char buf[WIFI_CMD_LEN] = {0};
 
-    sprintf(buf, "set_network 0 bssid %02x:%02x:%02x:%02x:%02x:%02x",
+    snprintf(buf, sizeof(buf), "set_network 0 bssid %02x:%02x:%02x:%02x:%02x:%02x",
         bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
     return wifi_ctrl_iface(STATION_IF, buf);
 }
@@ -832,7 +860,7 @@ sys_err_t wifi_set_scan_hidden_ssid(void)
 	char buf[WIFI_CMD_LEN];
     
 	memset(buf, 0, sizeof(buf));
-	sprintf(buf, "set_network 0 scan_ssid 1");
+	snprintf(buf, sizeof(buf), "set_network 0 scan_ssid 1");
 	return wifi_ctrl_iface(STATION_IF, buf);	
 }
 
@@ -841,7 +869,7 @@ sys_err_t wifi_disconnect(void)
 	char buf[WIFI_CMD_LEN];
     
 	memset(buf, 0, sizeof(buf));
-	sprintf(buf, "disable_network 0");
+	snprintf(buf, sizeof(buf), "disable_network 0");
 	return wifi_ctrl_iface(STATION_IF, buf);
 }
 
@@ -941,7 +969,7 @@ sys_err_t wifi_scan_start(bool block, const wifi_scan_config_t *config)
     pos = buf;
     end = buf + WIFI_CMD_LEN;
 
-    sprintf(buf, "flush_bss 0");
+    snprintf(buf, sizeof(buf), "flush_bss 0");
     wifi_ctrl_iface(STATION_IF, buf);
     memset(buf, 0, sizeof(buf));
 
@@ -1341,7 +1369,7 @@ void wifi_update_nv_sta_start(char *ssid, char *pwd, uint8_t *pmk)
         memset(nv_info->sta_pwd, 0, sizeof(nv_info->sta_pwd));
     } else if (pwd && strcmp(nv_info->sta_pwd, pwd)) {
         nv_info->sync = 0;
-        strcpy(nv_info->sta_pwd, pwd);
+        strlcpy(nv_info->sta_pwd, pwd, sizeof(nv_info->sta_pwd));
     }
 
     if (!nv_info->sync) {

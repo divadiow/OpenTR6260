@@ -4,6 +4,7 @@
 #include "system_common.h"
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "easyflash.h"
 
 #define LEAP_YAER_SEC 		(366*24*3600)
@@ -1991,91 +1992,105 @@ void rtc_timer_isr(void)
 
 void rtc_timer_list_nv_save(void)
 {
+		int length = rt_list_len(TimerListHead);
+		char nv_str[12];
 
-	int length = rt_list_len(TimerListHead);
-	char nv_str[8];
-	int retlen = snprintf(nv_str, 8, "%d", length);
-	ef_set_env_blob(RTC_TIMER_LIST_LEN, nv_str, retlen - 1); // 保存链表长度
+		/* Persist list length as ASCII so it can be safely parsed later. */
+		int n = snprintf(nv_str, sizeof(nv_str), "%d", length);
+		if (n > 0) {
+			size_t slen = (n < (int)sizeof(nv_str)) ? (size_t)n : (sizeof(nv_str) - 1);
+			ef_set_env_blob(RTC_TIMER_LIST_LEN, nv_str, slen);
+		}
 
-	rtc_base_t i = 0;
+		if (length <= 0) {
+			return;
+		}
 
-	rtc_timer_t *cur = TimerListHead;
+		rtc_timer_t *start = (rtc_timer_t *)pvPortMalloc(sizeof(rtc_timer_t) * (size_t)length);
+		if (!start) {
+			return;
+		}
+		memset(start, '\0', sizeof(rtc_timer_t) * (size_t)length);
 
-	rtc_timer_t *start = pvPortMalloc(sizeof(rtc_timer_t) * length);
-	memset(start, '\0', sizeof(rtc_timer_t) * length);
+		rtc_timer_t *cur = TimerListHead;
+		for (rtc_base_t i = 0; i < length && cur; i++) {
+			/* Do NOT persist live pointers (list links or callbacks). */
+			rtc_timer_t tmp;
+			memcpy(&tmp, cur, sizeof(tmp));
+			tmp.next = NULL;
+			tmp.prev = NULL;
+			tmp.timeout = NULL;
+			tmp.parameter = NULL;
 
-	rtc_timer_t *p = start;
+			memcpy(&start[i], &tmp, sizeof(tmp));
+			cur = cur->next;
+		}
 
-	for (i = 0; i < length; i++)
-	{
-		memcpy(p, cur, sizeof(rtc_timer_t));
-		cur = cur->next;
-		// system_printf("save----");
-		// show(p);
-		p += 1;
-	}
-
-	ef_set_env_blob(RTC_TIMER_LIST, start, sizeof(rtc_timer_t) * length);
-
-	vPortFree(start);
+		ef_set_env_blob(RTC_TIMER_LIST, start, sizeof(rtc_timer_t) * (size_t)length);
+		vPortFree(start);
 }
 
 void rtc_timer_list_nv_read(void)
 {
+		char nv_str[12];
+		memset(nv_str, 0, sizeof(nv_str));
 
-	int i;
-	char nv_str[8];
-	int ret = ef_get_env_blob(RTC_TIMER_LIST_LEN, nv_str, 8, NULL);
+		int ret = ef_get_env_blob(RTC_TIMER_LIST_LEN, nv_str, sizeof(nv_str) - 1, NULL);
+		if (ret <= 0) {
+			return;
+		}
+		/* Ensure termination even if storage returned a full buffer. */
+		nv_str[(ret < (int)sizeof(nv_str)) ? ret : ((int)sizeof(nv_str) - 1)] = 0;
 
-	int len = atoi(nv_str);
+		char *endp = NULL;
+		unsigned long ulen = strtoul(nv_str, &endp, 10);
+		if (endp == nv_str || ulen == 0) {
+			return;
+		}
+		/* Hard cap to prevent pathological allocations on corrupt NV. */
+		if (ulen > 256UL) {
+			return;
+		}
+		int len = (int)ulen;
 
-	system_printf("ret :%d  lengh:%d \r\n", ret, len);
+		size_t getlen = 0;
+		rtc_timer_t *start = (rtc_timer_t *)pvPortMalloc(sizeof(rtc_timer_t) * (size_t)len);
+		if (!start) {
+			return;
+		}
+		memset(start, '\0', sizeof(rtc_timer_t) * (size_t)len);
 
-	rtc_timer_t *start = NULL;
+		if (!ef_get_env_blob(RTC_TIMER_LIST, start, sizeof(rtc_timer_t) * (size_t)len, &getlen)) {
+			vPortFree(start);
+			return;
+		}
+		if (getlen < sizeof(rtc_timer_t)) {
+			vPortFree(start);
+			return;
+		}
 
-	size_t getlen = 0;
-
-	if (len != 0)
-	{
-		start = pvPortMalloc(sizeof(rtc_timer_t) * len);
-		memset(start, '\0', sizeof(rtc_timer_t) * len);
-		ef_get_env_blob(RTC_TIMER_LIST, start, sizeof(rtc_timer_t) * len, &getlen);
-		system_printf("getlen:%d  each%d\r\n", getlen, sizeof(rtc_timer_t));
-	}
-	else
-	{
-		return;
-	}
-
-	if (len == 1)
-	{
-		TimerListHead = start;
-		rt_list_init(TimerListHead);
-	}
-	else
-	{
-		for (i = 0; i < len; i++)
-		{
+		/* Rebuild list as freshly allocated nodes; never reuse persisted pointers. */
+		for (int i = 0; i < len; i++) {
 			rtc_timer_t *newtimer = (rtc_timer_t *)pvPortMalloc(sizeof(rtc_timer_t));
-
-			memcpy(newtimer, (start + i), sizeof(rtc_timer_t));
+			if (!newtimer) {
+				break;
+			}
+			memcpy(newtimer, &start[i], sizeof(rtc_timer_t));
+			newtimer->next = NULL;
+			newtimer->prev = NULL;
+			newtimer->timeout = NULL;
+			newtimer->parameter = NULL;
 
 			rt_list_init(newtimer);
 
-			if (i == 0)
-			{
+			if (i == 0) {
 				TimerListHead = newtimer;
-			}
-			else
-			{
+			} else {
 				rt_list_insert_before(TimerListHead, newtimer);
 			}
-
-			// system_printf("read----");
-			// show(newtimer);
 		}
+
 		vPortFree(start);
-	}
 }
 
 #if 0

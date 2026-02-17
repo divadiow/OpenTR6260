@@ -580,6 +580,18 @@ getdelim(char **buf, size_t *bufsiz, int delimiter, FILE *fp)
 			if (feof(fp)) {
 				ssize_t diff = (ssize_t)(ptr - *buf);
 				if (diff != 0) {
+					/* Ensure space for terminator */
+					if (ptr >= eptr) {
+						char *nbuf;
+						size_t nbufsiz = *bufsiz * 2;
+						ssize_t d = ptr - *buf;
+						if ((nbuf = realloc(*buf, nbufsiz)) == NULL)
+							return -1;
+						*buf = nbuf;
+						*bufsiz = nbufsiz;
+						eptr = nbuf + nbufsiz;
+						ptr = nbuf + d;
+					}
 					*ptr = '\0';
 					return diff;
 				}
@@ -588,6 +600,18 @@ getdelim(char **buf, size_t *bufsiz, int delimiter, FILE *fp)
 		}
 		*ptr++ = c;
 		if (c == delimiter) {
+			/* Ensure space for terminator */
+			if (ptr >= eptr) {
+				char *nbuf;
+				size_t nbufsiz = *bufsiz * 2;
+				ssize_t d = ptr - *buf;
+				if ((nbuf = realloc(*buf, nbufsiz)) == NULL)
+					return -1;
+				*buf = nbuf;
+				*bufsiz = nbufsiz;
+				eptr = nbuf + nbufsiz;
+				ptr = nbuf + d;
+			}
 			*ptr = '\0';
 			return ptr - *buf;
 		}

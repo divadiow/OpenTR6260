@@ -84,7 +84,7 @@ int set_wifi_opmode(int argc, char *argv[])
         mode = WIFI_MODE_AP_STA;
 
     wifi_set_opmode(mode);
-    sprintf(mode_str, "%1d", mode);
+    snprintf(mode_str, sizeof(mode_str), "%1d", mode);
     ef_set_env_blob(NV_WIFI_OP_MODE, mode_str, 1);
 
     return CMD_RET_SUCCESS;
@@ -167,9 +167,9 @@ int set_ipinfo(int argc, char *argv[])
 	if (argc <= 1)
 	    return CMD_RET_USAGE;
 
-	sprintf(buf, " %s", argv[1]);
+	snprintf(buf, sizeof(cmd), " %s", argv[1]);
 	for (i = 2; i < argc; i++) {
-        sprintf(buf, "%s %s", buf, argv[i]);
+        { size_t _off = strlen(buf); if (_off < sizeof(buf)) { snprintf(buf + _off, sizeof(buf) - _off, " %s", argv[i]); } }
 	}
 
     memset(&ipinfo, 0, sizeof(ipinfo));
@@ -631,9 +631,9 @@ static int cmd_iperf(cmd_tbl_t *t, int argc, char *argv[])
 	if (argc <= 1)
 	        return CMD_RET_USAGE;
 
-	sprintf(buf, "%s", argv[1]);
+	snprintf(buf, sizeof(buf), "%s", argv[1]);
 	for (i = 2; i < argc; i++) {
-	        sprintf(buf, "%s %s", buf, argv[i]);
+	        { size_t _off = strlen(buf); if (_off < sizeof(buf)) { snprintf(buf + _off, sizeof(buf) - _off, " %s", argv[i]); } }
 	}
 	iperf_run(buf);
 	return CMD_RET_SUCCESS;
@@ -677,12 +677,12 @@ static int station_rssi_connect(cmd_tbl_t *tt, int argc, char *argv[])
 
 	if(argc >= 2)
 	{
-		strcpy((char *)config.sta.ssid, argv[1]);
+		strlcpy((char *)config.sta.ssid, argv[1], sizeof(config.sta.ssid));
 		system_printf("ssid:%s\r\n", config.sta.ssid);
 	}
 	if(argc >= 3)
 	{
-		strcpy(config.sta.password , argv[2]);
+		strlcpy(config.sta.password, argv[2], sizeof(config.sta.password));
 		system_printf("password:%s\r\n", config.sta.password);
 	}
 

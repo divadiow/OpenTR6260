@@ -31,6 +31,19 @@
 
 #include <cJSON.h>
 #include <string.h>
+#include <stdlib.h>
+/* Bounded string copy helper for struct fields (avoids strcpy overflow). */
+#ifndef S2J_SAFE_STRCPY
+#define S2J_SAFE_STRCPY(dst, src) do {     size_t _cap = sizeof(dst);     if ((src) && _cap > 0) {         strncpy((dst), (src), _cap - 1);         (dst)[_cap - 1] = 0;     } } while (0)
+#endif
+
+/* Fallback s2j_strnlen for toolchains that don't provide it. */
+static inline size_t s2j_strnlen(const char *s, size_t maxlen) {
+    size_t n = 0;
+    if (!s) return 0;
+    while (n < maxlen && s[n]) n++;
+    return n;
+}
 
 #ifdef __cplusplus
 extern "C" {
@@ -47,7 +60,7 @@ typedef struct {
 
 #define S2J_STRUCT_GET_string_ELEMENT(to_struct, from_json, _element) \
     json_temp = cJSON_GetObjectItem(from_json, #_element); \
-    if (json_temp) strcpy((to_struct)->_element, json_temp->valuestring);
+    if (json_temp && cJSON_IsString(json_temp) && json_temp->valuestring) S2J_SAFE_STRCPY((to_struct)->_element, json_temp->valuestring);
 
 #define S2J_STRUCT_GET_double_ELEMENT(to_struct, from_json, _element) \
     json_temp = cJSON_GetObjectItem(from_json, #_element); \
@@ -57,7 +70,7 @@ typedef struct {
     (to_struct)->_element[index] = from_json->valueint;
 
 #define S2J_STRUCT_ARRAY_GET_string_ELEMENT(to_struct, from_json, _element, index) \
-    strcpy((to_struct)->_element[index], from_json->valuestring);
+    if (from_json && cJSON_IsString(from_json) && from_json->valuestring) S2J_SAFE_STRCPY((to_struct)->_element[index], from_json->valuestring);
 
 #define S2J_STRUCT_ARRAY_GET_double_ELEMENT(to_struct, from_json, _element, index) \
     (to_struct)->_element[index] = from_json->valuedouble;

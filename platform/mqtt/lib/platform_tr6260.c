@@ -9,7 +9,9 @@
 char *platform_create_id_string()
 {
     char *id_string = mqtt_calloc(1, MAX_ID_STRING);
-    sprintf(id_string, "T6260_%02x%02X%02X",1,2,3);
+    if (id_string) {
+        snprintf(id_string, MAX_ID_STRING, "T6260_%02x%02X%02X", 1, 2, 3);
+    }
     return id_string;
 }
 

@@ -345,9 +345,9 @@ int iperf3_test(cmd_tbl_t *t, int argc , char *argv[])
     }
 
     memset(ipef3_clibuf, 0, sizeof(ipef3_clibuf));
-	sprintf(ipef3_clibuf, "%s", argv[0]);
+	snprintf(ipef3_clibuf, sizeof(ipef3_clibuf), "%s", argv[0]);
 	for (i = 1; i < argc; i++) {
-        sprintf(ipef3_clibuf, "%s %s", ipef3_clibuf, argv[i]);
+        { size_t _off = strlen(ipef3_clibuf); if (_off < sizeof(ipef3_clibuf)) { snprintf(ipef3_clibuf + _off, sizeof(ipef3_clibuf) - _off, " %s", argv[i]); } }
 	}
 
     //printf("%s\n", ipef3_clibuf);

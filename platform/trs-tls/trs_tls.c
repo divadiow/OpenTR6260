@@ -40,8 +40,11 @@ static struct addrinfo *resolve_host_name(const char *host, size_t hostlen)
     if (!use_host) {
         return NULL;
     }
-    strcpy(use_host, host);
-    
+    if (hostlen > 0) {
+        memcpy(use_host, host, hostlen);
+    }
+    use_host[hostlen] = 0;
+
     printf("host:%s: strlen %lu\n", use_host, (unsigned long)hostlen);
     struct addrinfo *res;
     if (getaddrinfo(use_host, NULL, &hints, &res)) {
@@ -243,7 +246,10 @@ static int create_ssl_handle(trs_tls_t *tls, const char *hostname, size_t hostle
     if (!use_host) {
         goto exit;
     }
-    strcpy(use_host, hostname);
+    if (hostlen > 0) {
+        memcpy(use_host, hostname, hostlen);
+    }
+    use_host[hostlen] = 0;
     
     if ((ret = mbedtls_ssl_set_hostname(&tls->ssl, use_host)) != 0) {
         printf("mbedtls_ssl_set_hostname returned -0x%x\n", -ret);

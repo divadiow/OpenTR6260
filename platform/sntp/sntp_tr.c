@@ -23,6 +23,8 @@
 #include "system.h"
 #include "drv_rtc.h"
 #include "sntp.h"
+#include <string.h>
+#include <stdlib.h>
 
 
 
@@ -219,10 +221,13 @@ int set_timezone(char tz)
 	set_local_time(cur_time);
 	timezone = tz;
 
-	len = snprintf(nv_str, 4, "%d", tz);
+	len = snprintf(nv_str, sizeof(nv_str), "%d", tz);
 
-	ef_set_env_blob(NV_SNTP_TIMEZONE, nv_str, len-1);
-	//system_printf("set_timezone, val: %s, len: %d\n", nv_str, len);
+	if (len > 0) {
+		size_t blen = (len < (int)sizeof(nv_str)) ? (size_t)len : (sizeof(nv_str) - 1);
+		ef_set_env_blob(NV_SNTP_TIMEZONE, nv_str, blen);
+	}
+//system_printf("set_timezone, val: %s, len: %d\n", nv_str, len);
 
 	if(sntp_enabled())
 		sntp_restart();
@@ -247,11 +252,13 @@ int set_sntp_period(unsigned int period)
 
 	sntp_period = period;
 
-	len = snprintf(nv_str, 16, "%d", period);
+	len = snprintf(nv_str, sizeof(nv_str), "%d", period);
 
-	ef_set_env_blob(NV_SNTP_UPDATEPERIOD, nv_str, len-1);
-
-	if(sntp_enabled())
+	if (len > 0) {
+		size_t blen = (len < (int)sizeof(nv_str)) ? (size_t)len : (sizeof(nv_str) - 1);
+		ef_set_env_blob(NV_SNTP_UPDATEPERIOD, nv_str, blen);
+	}
+if(sntp_enabled())
 		sntp_restart();
 
 	return 0;
@@ -265,9 +272,20 @@ unsigned int get_sntp_period(void)
 
 int set_servername(unsigned char idx, const char *s)
 {
-	ef_set_env_blob(NV_SNTP_SERVER, s, strlen(s));
-	memcpy(server[idx], s, strlen(s));
-       sntp_setservername(idx, s);
+	if (s == NULL) {
+		return -1;
+	}
+	if (idx >= SNTP_MAX_SERVERS) {
+		return -1;
+	}
+
+	size_t n = strnlen(s, sizeof(server[0]) - 1);
+	ef_set_env_blob(NV_SNTP_SERVER, s, n);
+
+	memcpy(server[idx], s, n);
+	server[idx][n] = 0;
+
+	sntp_setservername(idx, server[idx]);
 	return 0;
 }
 char *get_servername(unsigned char idx)
@@ -287,7 +305,7 @@ void sntp_load_nv(void)
 	}
 	else
 	{
-		nv_str[ret] = 0;
+		nv_str[(ret < (int)sizeof(nv_str)) ? ret : (sizeof(nv_str) - 1)] = 0;
 		timezone = atoi(nv_str);
 	}
 	
@@ -298,17 +316,23 @@ void sntp_load_nv(void)
 	}
 	else
 	{
-		nv_str[ret] = 0;
+		nv_str[(ret < (int)sizeof(nv_str)) ? ret : (sizeof(nv_str) - 1)] = 0;
 		sntp_period = atoi(nv_str);
 	}
 
-	ret = ef_get_env_blob(NV_SNTP_SERVER, server[0], 32, NULL);
-	if(ret == 0)
+	ret = ef_get_env_blob(NV_SNTP_SERVER, server[0], sizeof(server[0]), NULL);
+	if (ret <= 0)
 	{
-		memset(server[0], 0, 32);
-		memcpy(server[0], SNTP_SERVER, sizeof(SNTP_SERVER));
+		/* Default server */
+		memset(server[0], 0, sizeof(server[0]));
+		strncpy(server[0], SNTP_SERVER, sizeof(server[0]) - 1);
 	}
-
+	else
+	{
+		/* Ensure NUL termination */
+		size_t idx = ((size_t)ret < sizeof(server[0])) ? (size_t)ret : (sizeof(server[0]) - 1);
+		server[0][idx] = 0;
+	}
 	sntp_setservername(0, server[0]);
 }
 

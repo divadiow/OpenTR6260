@@ -473,12 +473,12 @@ static int wifi_best_connect(cmd_tbl_t *t, int argc, char *argv[])
 
 	if(argc >= 2)
 	{
-		strcpy((char *)config.sta.ssid, argv[1]);
+		strlcpy((char *)config.sta.ssid, argv[1], sizeof(config.sta.ssid));
 		system_printf("ssid:%s\r\n", config.sta.ssid);
 	}
 	if(argc >= 3)
 	{
-		strcpy(config.sta.password , argv[2]);
+		strlcpy(config.sta.password, argv[2], sizeof(config.sta.password));
 		system_printf("password:%s\r\n", config.sta.password);
 	}
 	

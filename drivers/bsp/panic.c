@@ -288,17 +288,28 @@ static void show_mem(const char *prefix, const char *indent, void *addr, int sz,
 				continue;
 			}
 			if (p < (unsigned) pivot && color != 'r') {
-				cursor += sprintf(cursor, "\x1b[31m");
-				color = 'r';
-				bad++;
-			} else if (p > (unsigned) pivot && color != 'b') {
-				cursor += sprintf(cursor, "\x1b[0m");
-				color = 'b';
-			}
+    int _n = snprintf(cursor, (size_t)(line + sizeof(line) - cursor), "\x1b[31m");
+    if (_n > 0) {
+        cursor += (_n < (int)(line + sizeof(line) - cursor) ? _n : (int)(line + sizeof(line) - cursor) - 1);
+    }
+    color = 'r';
+    bad++;
+} else if (p > (unsigned) pivot && color != 'b') {
+    int _n = snprintf(cursor, (size_t)(line + sizeof(line) - cursor), "\x1b[0m");
+    if (_n > 0) {
+        cursor += (_n < (int)(line + sizeof(line) - cursor) ? _n : (int)(line + sizeof(line) - cursor) - 1);
+    }
+    color = 'b';
+}
 
-			val = ((width == 1) ? *((uint8_t *) p) :
-			       (width == 2) ? *((uint16_t *) p) : *(uint32_t *) p);
-			cursor += sprintf(cursor, fmt[width], val);
+val = ((width == 1) ? *((uint8_t *) p) :
+       (width == 2) ? *((uint16_t *) p) : *(uint32_t *) p);
+{
+    int _n = snprintf(cursor, (size_t)(line + sizeof(line) - cursor), fmt[width], val);
+    if (_n > 0) {
+        cursor += (_n < (int)(line + sizeof(line) - cursor) ? _n : (int)(line + sizeof(line) - cursor) - 1);
+    }
+}
 		}
 		panic_printf("%s%s0x%08lx:%s\x1b[0m\n", indent,
 		       (bad == 0) ? "\x1b[0m" : "\x1b[31m", start, line);
@@ -1018,7 +1029,7 @@ void flash_dump(struct pt_regs *pt,TaskStatus_t *tsk)
 
 		flash_rw_operation((char *)&tasknamelen,u32len,FLASH_DUMPOP_WRITE);
 		tasknamelen = min(tasknamelen, sizeof(taskname) - 1);
-		snprintf(taskname, sizeof(taskname), tsk->pcTaskName);
+		snprintf(taskname, sizeof(taskname), "%s", tsk->pcTaskName);
 		flash_rw_operation(taskname, tasknamelen,  FLASH_DUMPOP_WRITE);
 		flash_rw_operation((char *)pt, reglen, FLASH_DUMPOP_WRITE);
 		flash_rw_operation((char *)&g_itype, u32len, FLASH_DUMPOP_WRITE);
@@ -1080,9 +1091,15 @@ void nds32_die(struct pt_regs *pt)
 	//backtrace(&tsk, pt);
 	/*show_mem("PC", "", (void *) pt->pc-32, 64, 2, NULL);*/
 #ifdef TUYA_SDK_ADPT
-    int rst_reason;
-    rst_reason = TY_RST_FATAL_EXCEPTION;
-    ef_set_env_blob(NV_STARTUP_TYPE, &rst_reason, sizeof(int));
+    /* NV_STARTUP_TYPE is stored as an ASCII integer elsewhere (system_common.c). Keep it consistent here. */
+    {
+        char nv_str[12];
+        int n = snprintf(nv_str, sizeof(nv_str), "%d", TY_RST_FATAL_EXCEPTION);
+        if (n > 0) {
+            size_t len = (n < (int)sizeof(nv_str)) ? (size_t)n : (sizeof(nv_str) - 1);
+            ef_set_env_blob(NV_STARTUP_TYPE, nv_str, len);
+        }
+    }
 #endif
 	panic_printf("System halted...\n");
 

@@ -1950,7 +1950,8 @@ int partion_info_get(char *key, unsigned int *addr, unsigned int * length)
 		for (i=0; i<partionDev.num; i++)
 		{
 			pPartion = &partionDev.partion[i];
-			if (!strncmp(key, pPartion->key, strlen(key)))
+			if (!(strncmp(key, pPartion->key, strlen(pPartion->key)) == 0 &&
+             (key[strlen(pPartion->key)] == '\0' || key[strlen(pPartion->key)] == '_' || key[strlen(pPartion->key)] == '.'))
 			{
 				base = pPartion->base;
 				len = pPartion->length;

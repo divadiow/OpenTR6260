@@ -58,7 +58,8 @@ static int ws_connect(transport_handle_t t, const char *host, int port, int time
 {
     transport_ws_t *ws = transport_get_context_data(t);
     if (transport_connect(ws->parent, host, port, timeout_ms) < 0) {
-        system_printf("Error connect to ther server");
+        system_printf("Error connect to the server");
+        return -1;
     }
     unsigned char random_key[16] = { 0 }, client_key[32] = {0};
     int i;
@@ -66,8 +67,16 @@ static int ws_connect(transport_handle_t t, const char *host, int port, int time
         random_key[i] = rand() & 0xFF;
     }
     size_t outlen = 0;
-    mbedtls_base64_encode(client_key, 32,  &outlen, random_key, 16);
-    int len =   snprintf(ws->buffer, DEFAULT_WS_BUFFER,
+    if (mbedtls_base64_encode(client_key, sizeof(client_key), &outlen, random_key, sizeof(random_key)) != 0) {
+        system_printf("Error base64 encoding client key");
+        return -1;
+    }
+    if (outlen < sizeof(client_key)) {
+        client_key[outlen] = 0;
+    } else {
+        client_key[sizeof(client_key) - 1] = 0;
+    }
+        int len = snprintf(ws->buffer, DEFAULT_WS_BUFFER,
                          "GET %s HTTP/1.1\r\n"
                          "Connection: Upgrade\r\n"
                          "Host: %s:%d\r\n"
@@ -84,10 +93,11 @@ static int ws_connect(transport_handle_t t, const char *host, int port, int time
         system_printf("Error write Upgrade header %s", ws->buffer);
         return -1;
     }
-    if ((len = transport_read(ws->parent, ws->buffer, DEFAULT_WS_BUFFER, timeout_ms)) <= 0) {
+    if ((len = transport_read(ws->parent, ws->buffer, DEFAULT_WS_BUFFER - 1, timeout_ms)) <= 0) {
         system_printf("Error read response for Upgrade header %s", ws->buffer);
         return -1;
     }
+    ws->buffer[len] = 0;
     char *server_key = get_http_header(ws->buffer, "Sec-WebSocket-Accept:");
     if (server_key == NULL) {
         system_printf("Sec-WebSocket-Accept not found");
@@ -95,7 +105,11 @@ static int ws_connect(transport_handle_t t, const char *host, int port, int time
     }
 
     unsigned char client_key_b64[64], valid_client_key[20], accept_key[32] = {0};
-    int key_len = sprintf((char*)client_key_b64, "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", (char*)client_key);
+    int key_len = snprintf((char*)client_key_b64, sizeof(client_key_b64), "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", (char*)client_key);
+    if (key_len < 0 || key_len >= (int)sizeof(client_key_b64)) {
+        system_printf("Client key concat truncated");
+        return -1;
+    }
     mbedtls_sha1(client_key_b64, (size_t)key_len, valid_client_key);
     mbedtls_base64_encode(accept_key, 32,  &outlen, valid_client_key, 20);
     accept_key[outlen] = 0;
@@ -224,8 +238,13 @@ static int ws_destroy(transport_handle_t t)
 void transport_ws_set_path(transport_handle_t t, const char *path)
 {
     transport_ws_t *ws = transport_get_context_data(t);
-    ws->path = mqtt_realloc(ws->path, strlen(path) + 1);
-    strcpy(ws->path, path);
+    char *new_path = mqtt_realloc(ws->path, strlen(path) + 1);
+    if (!new_path) {
+        system_printf("Out of memory setting WS path");
+        return;
+    }
+    ws->path = new_path;
+    memcpy(ws->path, path, strlen(path) + 1);
 }
 transport_handle_t transport_ws_init(transport_handle_t parent_handle)
 {

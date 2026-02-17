@@ -419,19 +419,25 @@ void *pvPortReMalloc(void *pvOld, size_t xNewSize)
     pxLink = (void *)puc;
     configASSERT((pxLink->xBlockSize & xBlockAllocatedBit) != 0);
 #ifdef HEAP_MEMORY_TRACE
-	xOldSize = (pxLink->xBlockSize & ~xBlockAllocatedBit)&HEAP_BLOCKSIZE_MASK;
+	xOldSize = ( ( pxLink->xBlockSize & ~xBlockAllocatedBit ) & HEAP_BLOCKSIZE_MASK );
+    /* pxLink->xBlockSize includes the heap header size (xHeapStructSize). pvOld points to the user payload. */
+    size_t xOldPayload = ( xOldSize > xHeapStructSize ) ? ( xOldSize - xHeapStructSize ) : 0;
+    size_t xCopyLen    = ( xOldPayload <= xNewSize ) ? xOldPayload : xNewSize;
     extern void *memcpy(void *dest, const void *src, size_t n);
-    memcpy(pvNew, pvOld, xOldSize <=  xNewSize ? xOldSize : xNewSize);
+    memcpy(pvNew, pvOld, xCopyLen);
 #else
     configASSERT(pxLink->pxNextFreeBlock == NULL);
 
 
     if ((pxLink->xBlockSize & xBlockAllocatedBit) != 0) {
         if (pxLink->pxNextFreeBlock == NULL) {
-            xOldSize = (pxLink->xBlockSize & ~xBlockAllocatedBit);
+            xOldSize = ( ( pxLink->xBlockSize & ~xBlockAllocatedBit ) & HEAP_BLOCKSIZE_MASK );
+            /* pxLink->xBlockSize includes the heap header size (xHeapStructSize). pvOld points to the user payload. */
+            size_t xOldPayload = ( xOldSize > xHeapStructSize ) ? ( xOldSize - xHeapStructSize ) : 0;
+            size_t xCopyLen    = ( xOldPayload <= xNewSize ) ? xOldPayload : xNewSize;
             extern void *memcpy(void *dest, const void *src, size_t n);
-            memcpy(pvNew, pvOld, xOldSize <=  xNewSize ? xOldSize : xNewSize);
-        }
+            memcpy(pvNew, pvOld, xCopyLen);
+}
     }
 #endif
 

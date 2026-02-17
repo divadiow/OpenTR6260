@@ -22,6 +22,8 @@
 #include "system_common.h"
 #include "drv_spiflash.h"
 #include "wdt.h"
+#include <string.h>
+#include <stdlib.h>
 
 
 /****************************************************************************
@@ -122,13 +124,15 @@ char otaHal_init(void)
 
 	if (partion_info_get(PARTION_NAME_DATA_OTA, &ota_info.s_addr, &ota_info.max_len) != 0)
 	{
-		if(ef_get_env_blob(NV_OTA_ADDR, &partion, 4, NULL) == 1)
 		{
-			partion = atoi((char *)&partion);
-		}
-		else
-		{
-			partion = 1;
+			char nv_part[16];
+			int n = ef_get_env_blob(NV_OTA_ADDR, nv_part, sizeof(nv_part) - 1, NULL);
+			if (n > 0) {
+				nv_part[(n < (int)sizeof(nv_part)) ? n : (sizeof(nv_part) - 1)] = 0;
+				partion = (int)strtoul(nv_part, NULL, 10);
+			} else {
+				partion = 1;
+			}
 		}
 
 		if(partion == 2)
@@ -261,35 +265,41 @@ unsigned int crc32_le(unsigned int crc, const unsigned char* buf, unsigned int l
 
 static trs_err_t trs_ota_verify(unsigned int offset,unsigned int size)
 {
-    unsigned int remain_size = size + 4; // last 4 bytes is crc32 verify value
+    /* OTA image layout: [payload (size bytes)] [crc32 (4 bytes)] */
+    unsigned int remain_size = size;
     unsigned int result = 0xffffffff;
     unsigned char *buff = (unsigned char *)os_calloc(1, SPI_FLASH_SEC_SIZE);
     unsigned int checksum = 0;
-    if(buff == NULL){
+    unsigned int read_off = offset;
+
+    if (buff == NULL) {
         return TRS_ERR_NO_MEM;
     }
 
-    while(remain_size > SPI_FLASH_SEC_SIZE) {
-        hal_spiflash_read(offset, buff, SPI_FLASH_SEC_SIZE);
+    while (remain_size > SPI_FLASH_SEC_SIZE) {
+        hal_spiflash_read(read_off, buff, SPI_FLASH_SEC_SIZE);
         result = crc32_le(result, buff, SPI_FLASH_SEC_SIZE);
-        offset += SPI_FLASH_SEC_SIZE;
+        read_off += SPI_FLASH_SEC_SIZE;
         remain_size -= SPI_FLASH_SEC_SIZE;
-        memset(buff, 0, SPI_FLASH_SEC_SIZE);
     }
-    if(remain_size){
+
+    if (remain_size) {
         memset(buff, 0, SPI_FLASH_SEC_SIZE);
-        hal_spiflash_read(offset, buff, remain_size);
-        result = crc32_le(result,(unsigned char *)buff,remain_size);
-        offset += remain_size;
-        remain_size -= remain_size;
+        hal_spiflash_read(read_off, buff, remain_size);
+        result = crc32_le(result, (unsigned char *)buff, remain_size);
+        read_off += remain_size;
     }
-    hal_spiflash_read(offset, (unsigned char *)&checksum, sizeof(unsigned int));
-	
-//	system_printf("result: %x  checksum: %x\n", result,checksum);
-    if(result != checksum){
-        system_printf("OTA verify checksum failed, verify %x != %x\n",result,checksum);
+
+    /* Stored CRC immediately follows payload */
+    hal_spiflash_read(offset + size, (unsigned char *)&checksum, sizeof(unsigned int));
+
+    os_free(buff);
+
+    if (result != checksum) {
+        system_printf("OTA verify checksum failed, verify %x != %x
+", result, checksum);
         return TRS_ERR_OTA_VALIDATE_FAILED;
-    } 
+    }
     return TRS_OK;
 }
 
@@ -312,7 +322,7 @@ char otaHal_done(void)
 		if(trs_ota_verify((unsigned int)(ota_info.s_addr),(unsigned int)(ota_total_len)) == 0)
 		{
 			ret = snprintf(nv_str, 4, "%d", (int)ota_info.ota_partion);
-			ef_set_env_blob(NV_OTA_ADDR, nv_str, ret-1);
+			if (ret > 0) { size_t blen = (ret < (int)sizeof(nv_str)) ? (size_t)ret : (sizeof(nv_str) - 1); ef_set_env_blob(NV_OTA_ADDR, nv_str, blen); }
 			system_printf("ota_write_done partion: %d\nota begin to reboot system!!!!", ota_info.ota_partion);
 			system_reset(STARTUP_TYPE_OTA);
 			return TRS_OK;

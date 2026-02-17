@@ -78,7 +78,8 @@ void system_task_init()
 	if (g_sys_task_handle) 
 		system_printf("[%s, %d] task creation succeed!(0x%x)\n", __func__, __LINE__, g_sys_task_handle);	
 	else
-		system_printf("[%s, %d] task creation failed!(0x%x)\n", __func__, __LINE__);
+		system_printf("[%s, %d] task creation failed!(0x%x)
+", __func__, __LINE__, (unsigned int)g_sys_task_handle);
 }
 
 bool system_schedule_work_queue_from_isr( sys_task_func func , void* param , sys_task_func_cb cb )
@@ -513,8 +514,11 @@ void system_set_startup_type(int type)
 	int ret;
 	char nv_str[4];
 
-	ret = snprintf(nv_str, 4, "%d", type);
-	ef_set_env_blob(NV_STARTUP_TYPE, nv_str, ret-1);
+	ret = snprintf(nv_str, sizeof(nv_str), "%d", type);
+	if (ret > 0) {
+		size_t len = (ret < (int)sizeof(nv_str)) ? (size_t)ret : (sizeof(nv_str) - 1);
+		ef_set_env_blob(NV_STARTUP_TYPE, nv_str, len);
+	}
 }
 
 

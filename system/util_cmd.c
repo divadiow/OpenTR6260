@@ -741,9 +741,9 @@ static int cmd_ifconfig(cmd_tbl_t *t, int argc, char *argv[])
 
 	if(argc>1)
 	{
-		sprintf(buf, "%s", argv[1]);
+		snprintf(buf, sizeof(buf), "%s", argv[1]);
 		for (i = 2; i < argc; i++) {
-			sprintf(buf, "%s %s", buf, argv[i]);
+			{ size_t _off = strlen(buf); if (_off < sizeof(buf)) { snprintf(buf + _off, sizeof(buf) - _off, " %s", argv[i]); } }
 		}
 	}
 	wifi_ifconfig(buf);
@@ -761,9 +761,9 @@ static int cmd_ping(cmd_tbl_t *t, int argc, char *argv[])
 	int i = 0;
 	char buf[512] = {0,};
 
-	sprintf(buf, "%s", argv[1]);
+	snprintf(buf, sizeof(buf), "%s", argv[1]);
 	for (i = 2; i < argc; i++) {
-		sprintf(buf, "%s %s", buf, argv[i]);
+		{ size_t _off = strlen(buf); if (_off < sizeof(buf)) { snprintf(buf + _off, sizeof(buf) - _off, " %s", argv[i]); } }
 	}
 	ping_run(buf);
 	return CMD_RET_SUCCESS;
@@ -784,9 +784,9 @@ static int cmd_iperf(cmd_tbl_t *t, int argc, char *argv[])
 	if (argc <= 1)
 	        return CMD_RET_USAGE;
 
-	sprintf(buf, "%s", argv[1]);
+	snprintf(buf, sizeof(buf), "%s", argv[1]);
 	for (i = 2; i < argc; i++) {
-	        sprintf(buf, "%s %s", buf, argv[i]);
+	        { size_t _off = strlen(buf); if (_off < sizeof(buf)) { snprintf(buf + _off, sizeof(buf) - _off, " %s", argv[i]); } }
 	}
 	iperf_run(buf);
 	return CMD_RET_SUCCESS;

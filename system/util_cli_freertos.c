@@ -62,65 +62,69 @@ struct cli_buffer
 static int32_t cli_static_buffer_handler(struct cli_buffer *cli)
 {
 	unsigned long flags;
-	struct temp_data local_temp_data;
-	char* local_rxdata;
-	int local_index = 0;
+	int i;
 
-	struct temp_data *head=NULL;
-	struct temp_data *tail=NULL;
-	struct temp_data *pdata=NULL;
-	struct temp_data *pnext=NULL;
+	if (!cli) {
+		return -1;
+	}
 
-	if(cli->current_buffer == cli->dynamic_buffer)	// if now use dynamic_buffer, just return
+	/* If currently using dynamic buffer, nothing to do here. */
+	if (cli->current_buffer == cli->dynamic_buffer)
 	{
 		return 1;
 	}
-	
-	flags = system_irq_save();
-	
-	local_rxdata=cli->current_buffer;
-	while(local_index < cli->index)
+
+	/*
+	 * Do not allocate while interrupts are disabled. Instead:
+	 *  - Take a snapshot of one complete command (NUL-terminated) from the static buffer under IRQ lock.
+	 *  - Compact the remaining bytes.
+	 *  - Run the command outside the critical section.
+	 */
+	for (;;)
 	{
-		if(local_rxdata[local_index++]=='\0')	// find '\0'
+		char cmd[MAX_BUFFER_LEN];
+		int cmd_len = -1;
+
+		flags = system_irq_save();
+
+		/* Find first complete command */
+		for (i = 0; i < cli->index; i++) {
+			if (cli->static_buffer[i] == '\0') {
+				cmd_len = i + 1;
+				break;
+			}
+		}
+
+		if (cmd_len <= 0) {
+			/* No complete command available */
+			system_irq_restore(flags);
+			break;
+		}
+
+		if (cmd_len > MAX_BUFFER_LEN) {
+			/* Should never happen as static_buffer is MAX_BUFFER_LEN */
+			cmd_len = MAX_BUFFER_LEN;
+		}
+
+		memcpy(cmd, cli->static_buffer, cmd_len);
+
+		/* Remove consumed bytes from static buffer */
 		{
-			pdata=pvPortMalloc(sizeof(struct temp_data)+local_index);
-			pdata->next=NULL;
-			memcpy((struct temp_data*)pdata->data, local_rxdata, local_index);
-			if(head==NULL)
-			{
-				head=pdata;
+			int remain = cli->index - cmd_len;
+			if (remain > 0) {
+				memmove(cli->static_buffer, cli->static_buffer + cmd_len, remain);
 			}
-			if(tail==NULL)
-			{
-				tail=pdata;
-			}
-			else
-			{
-				tail->next=pdata;
-				tail=pdata;
-			}
-			local_rxdata = &local_rxdata[local_index];		// next ...
-			cli->index=cli->index - local_index;			// delete used data
-			if(cli->index < 0) cli->index=0;
-			local_index = 0;								// reset index
+			cli->index = (remain > 0) ? remain : 0;
 		}
-	}
-	
-	if(cli->index)
-	{
-		memcpy(cli->static_buffer, &local_rxdata[local_index], cli->index-local_index);
-	}
-	system_irq_restore(flags);
-	
-	pnext=head;
-	while(pnext)
-	{
-		if(g_cli_run_command) {
-			g_cli_run_command(pnext->data);
+
+		system_irq_restore(flags);
+
+		if (g_cli_run_command) {
+			g_cli_run_command(cmd);
 		}
-		pnext=pnext->next;
+		print_prompt();
 	}
-	print_prompt();
+
 	return 0;
 }
 
@@ -170,7 +174,7 @@ void execv_cmd(char*cmd)
 		return;
 	}
 	str = os_malloc(strlen(cmd)+1);
-	sprintf(str,"%s",cmd);
+	memcpy(str, cmd, strlen(cmd) + 1);
 
 	system_printf("%s\r\n", str);
 	if(false == system_schedule_work_queue(cli_dynamic_buffer_handler, str, NULL))
@@ -209,22 +213,26 @@ int g_test_char_num = 16;
 
 int uart_rx_buffer_assign(struct cli_buffer *cli)
 {
-	char *local_dynamic_buffer=NULL;
-	char *local_rxdata=NULL;
-	int local_index=0;
-	
-	if (NULL==cli->dynamic_buffer) {		// if no dynamic_buffer
-		if(g_dynbuffer_to_free)				// and wang to free
+	char *local_dynamic_buffer = NULL;
+	char *local_rxdata = NULL;
+	int local_index = 0;
+
+	if (!cli) {
+		return 0;
+	}
+
+	if (NULL == cli->dynamic_buffer) {		// if no dynamic_buffer
+		if (g_dynbuffer_to_free)				// and want to free
 		{
-			cli->dynamic_buffer=g_dynbuffer_to_free;	// so use g_dynbuffer_to_free
-			cli->index=0;								// clear cli.index
-			g_dynbuffer_to_free=NULL;					// change flag=NULL to not free
+			cli->dynamic_buffer = g_dynbuffer_to_free;	// so use g_dynbuffer_to_free
+			cli->index = 0;								// clear cli.index
+			g_dynbuffer_to_free = NULL;					// change flag=NULL to not free
 			cli->current_buffer = cli->dynamic_buffer;
 			return 1;  // dynamic_buffer
 		}
 		else if(
 #ifdef UART_TEST_just_for_liuyong
-			g_test<g_test_char_num || 
+			g_test < g_test_char_num ||
 #endif
 			heapIN_CRITICAL())		// heap in protect, just use static_buffer
 		{
@@ -232,48 +240,52 @@ int uart_rx_buffer_assign(struct cli_buffer *cli)
 			g_test++;
 			system_printf(".");
 #endif
-			cli->current_buffer=cli->static_buffer;
+			cli->current_buffer = cli->static_buffer;
 			return 0;  // static_buffer
 		}
 		else								// malloc dynamic_buffer
 		{
-			if(cli->index)			// if used static_buffer, so cli->index>0
+			if (cli->index)			// if used static_buffer, so cli->index>0
 			{
-				//ASSERT(cli->current_buffer==cli->static_buffer);
-				local_rxdata=cli->current_buffer;
-				while(local_index < cli->index)
+				local_rxdata = cli->current_buffer;
+				while (local_index < cli->index)
 				{
-					if(local_rxdata[local_index++]=='\0')	// find '\0'
+					if (local_rxdata[local_index++] == '\0')	// find '\0'
 					{
-						local_dynamic_buffer = pvPortMalloc(local_index);  // local_dynamic_buffer melloc enough size for '\0'
-						memcpy(local_dynamic_buffer, local_rxdata, local_index);
-						if(false == system_schedule_work_queue_from_isr(cli_dynamic_buffer_handler, local_dynamic_buffer, NULL))
-						{
-							vPortFree(cli->dynamic_buffer);
-						}  // if == true, it will be free in thread
+						local_dynamic_buffer = pvPortMalloc(local_index);  // enough size for '\0'
+						if (local_dynamic_buffer) {
+							memcpy(local_dynamic_buffer, local_rxdata, local_index);
+							if (false == system_schedule_work_queue_from_isr(cli_dynamic_buffer_handler, local_dynamic_buffer, NULL))
+							{
+								vPortFree(local_dynamic_buffer);
+							}  // if == true, it will be free in thread
+						}
 
 						local_rxdata = &local_rxdata[local_index]; 	// next ...
-						cli->index=cli->index - local_index;		// delete used data
-						if(cli->index < 0) cli->index=0;
+						cli->index = cli->index - local_index;		// delete used data
+						if (cli->index < 0) cli->index = 0;
 						local_index = 0;							// reset index
 					}
 				}
 			}
 
-			cli->dynamic_buffer = pvPortMalloc(MAX_INPUT_LENGTH);	// malloc		
-			ASSERT(cli->dynamic_buffer);
-			if(cli->index)
-			{
-				memcpy(cli->dynamic_buffer, local_rxdata, cli->index);	// copy g_rx_buffer to cli.buffer
+			cli->dynamic_buffer = pvPortMalloc(MAX_INPUT_LENGTH);	// malloc
+			if (!cli->dynamic_buffer) {
+				cli->current_buffer = cli->static_buffer;
+				return 0;
 			}
-			//memset(cli->current_buffer,0x00,sizeof(cli->current_buffer));
-			cli->current_buffer=cli->dynamic_buffer;
-			return 1;  // dynamic_buffer
 
+			if (cli->index && local_rxdata)
+			{
+				memcpy(cli->dynamic_buffer, local_rxdata, cli->index);	// copy remaining bytes
+			}
+
+			cli->current_buffer = cli->dynamic_buffer;
+			return 1;  // dynamic_buffer
 		}
 	}
-	
-	cli->current_buffer=cli->dynamic_buffer;
+
+	cli->current_buffer = cli->dynamic_buffer;
 	return 1;  // dynamic_buffer
 }
 

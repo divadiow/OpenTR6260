@@ -132,15 +132,15 @@ static void wpa_driver_get_wifi_nv(void)
 {
 	int ret = 0;
     uint16_t rate = 0;
-	char nv_str[3];
+	char nv_str[16];
 
 	nv_bw40_enable = 0;
 	wifi_country_t wifi_country_tmp;
 
     // init bandwidth
-	ret = ef_get_env_blob(NV_WIFI_BW_MODE, nv_str, 2, NULL);
+	ret = ef_get_env_blob(NV_WIFI_BW_MODE, nv_str, sizeof(nv_str) - 1, NULL);
 	if (ret) {
-		nv_str[1] = 0;
+		nv_str[(ret < (int)sizeof(nv_str)) ? ret : ((int)sizeof(nv_str) - 1)] = 0;
         ret = atoi(nv_str);
 		if(ret==NV_WIFI_BW_MODE_40M || ret==NV_WIFI_BW_MODE_AUTO)
             nv_bw40_enable = 1;		
@@ -151,7 +151,7 @@ static void wpa_driver_get_wifi_nv(void)
 	// if (ret) {
     //     wifi_driver_nrc_set_country(nv_str);
     // }
-	// ¡ä¨®flash?¨¢¨¨?
+	// ä¨®flash??
 
 	if(ef_get_env_blob(NV_WIFI_COUNTRY, wifi_country_tmp.cc, sizeof(wifi_country_tmp.cc), NULL)) 
 	{
@@ -167,8 +167,9 @@ static void wpa_driver_get_wifi_nv(void)
 	}
 
     // init rate set
-    ret = ef_get_env_blob(NV_WIFI_RATE_SET, &nv_str, 3, NULL);
+    ret = ef_get_env_blob(NV_WIFI_RATE_SET, nv_str, sizeof(nv_str) - 1, NULL);
     if (ret) {
+        nv_str[(ret < (int)sizeof(nv_str)) ? ret : ((int)sizeof(nv_str) - 1)] = 0;
         rate = atoi(nv_str);
         nv_rate_set = rate > 0 ? rate : 0xff;
         system_printf("load rate set 0x%x\n", nv_rate_set);
@@ -1545,7 +1546,7 @@ static void wpa_driver_nrc_init_nrc(struct nrc_wpa_if* intf)
 			,ifname ,intf->vif_id);
 
 	global->intf[intf->vif_id]		= intf;
-	strcpy(intf->if_name, ifname);
+	os_strlcpy(intf->if_name, ifname, sizeof(intf->if_name));
 	//TODO:
 	//get_standalone_macaddr(intf->vif_id, intf->addr);
 	wifi_load_mac_addr(intf->vif_id, intf->addr);

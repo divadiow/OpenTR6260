@@ -118,6 +118,48 @@ static void ef_get_array(const char *key, void *value, ef_array_types types) {
         array = cJSON_Parse(char_value);
         if (array) {
             size = cJSON_GetArraySize(array);
+if (types == EF_ARRAY_TYPES_STRING) {
+    /* 
+     * String-array support: callers provide char** storage and expect stable pointers.
+     * cJSON owns valuestring memory, so we copy strings into a static pool that stays
+     * valid until the next ef_get_string_array/ef_get_array(...STRING...) call.
+     */
+    static char *s_pool = NULL;
+    static size_t s_pool_sz = 0;
+    size_t total = 0;
+    for (i = 0; i < size; i++) {
+        cJSON *it = cJSON_GetArrayItem(array, i);
+        const char *s = (it && cJSON_IsString(it) && it->valuestring) ? it->valuestring : "";
+        total += strlen(s) + 1;
+    }
+    if (s_pool) {
+        free(s_pool);
+        s_pool = NULL;
+        s_pool_sz = 0;
+    }
+    if (total) {
+        s_pool = (char *) malloc(total);
+        if (!s_pool) {
+            for (i = 0; i < size; i++) {
+                *((char **) value + i) = NULL;
+            }
+            cJSON_Delete(array);
+            return;
+        }
+        char *w = s_pool;
+        for (i = 0; i < size; i++) {
+            cJSON *it = cJSON_GetArrayItem(array, i);
+            const char *s = (it && cJSON_IsString(it) && it->valuestring) ? it->valuestring : "";
+            size_t l = strlen(s);
+            memcpy(w, s, l + 1);
+            *((char **) value + i) = w;
+            w += l + 1;
+        }
+        s_pool_sz = total;
+    }
+    cJSON_Delete(array);
+    return;
+}
             for (i = 0; i < size; i++) {
                 switch (types) {
                 case EF_ARRAY_TYPES_BOOL: {
@@ -146,10 +188,6 @@ static void ef_get_array(const char *key, void *value, ef_array_types types) {
                 }
                 case EF_ARRAY_TYPES_DOUBLE: {
                     *((double *) value + i) = cJSON_GetArrayItem(array, i)->valuedouble;
-                    break;
-                }
-                case EF_ARRAY_TYPES_STRING: {
-                    *((char **) value + i) = cJSON_GetArrayItem(array, i)->valuestring;
                     break;
                 }
                 }
@@ -207,7 +245,10 @@ void ef_get_string_array(const char *key, char **value) {
  */
 void *ef_get_struct(const char *key, ef_types_get_cb get_cb) {
     char *char_value = ef_get_env(key);
-    cJSON *json_value = cJSON_Parse(char_value);
+    cJSON *json_value = NULL;
+    if (char_value) {
+        json_value = cJSON_Parse(char_value);
+    }
     void *value = NULL;
 
     if (json_value) {
@@ -219,11 +260,8 @@ void *ef_get_struct(const char *key, ef_types_get_cb get_cb) {
 
 EfErrCode ef_set_bool(const char *key, bool value) {
     char char_value[2] = { 0 };
-    if (!value) {
-        strcpy(char_value, "0");
-    } else {
-        strcpy(char_value, "1");
-    }
+    char_value[0] = value ? '1' : '0';
+    char_value[1] = '\0';
     return ef_set_env(key, char_value);
 }
 
