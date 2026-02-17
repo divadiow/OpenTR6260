@@ -471,8 +471,7 @@ static void ota_create_http_request_header_Host(char *req_data, const char *host
         /* (No-op: host already includes it if needed) */
         (void)0;
     }
-    ota_req_append(req_data, OTA_HTTP_REQ_MAX_LEN, "
-");
+    ota_req_append(req_data, OTA_HTTP_REQ_MAX_LEN, "\r\n");
 }
 /* HTTP的TCP连接，保持长连接，不关闭 */
 static void ota_create_http_request_header_Connection(char *req_data)
@@ -507,8 +506,7 @@ static void ota_create_http_request_header(char *req_data, const char *host, int
         ota_create_http_request_header_Range(req_data, receive_len);
     }
     
-    ota_req_append(req_data, OTA_HTTP_REQ_MAX_LEN, "
-");
+    ota_req_append(req_data, OTA_HTTP_REQ_MAX_LEN, "\r\n");
     
     OTA_DEBUG("\r\n ====================== \r\nrequest head send to server:\r\n%s\r\n======================\r\n", req_data);    
 }
@@ -1344,14 +1342,7 @@ int local_ota_scan_wifi(void)
     int find_ssid = 0;
     
     memset((void *)ssid_buf, 0, 32);
-    {
-        size_t n = strlen(CONFIG_LOCAL_OTA_SSID);
-        if (n >= sizeof(ssid_buf)) {
-            n = sizeof(ssid_buf) - 1;
-        }
-        memcpy(ssid_buf, CONFIG_LOCAL_OTA_SSID, n);
-        ssid_buf[n] = 0;
-    }
+    memcpy(ssid_buf, CONFIG_LOCAL_OTA_SSID, strlen(CONFIG_LOCAL_OTA_SSID));
     wifi_scan_config_t scan_cfg;
     memset((void *)&scan_cfg, 0, sizeof(wifi_scan_config_t));
     scan_cfg.ssid = ssid_buf;
@@ -1532,7 +1523,6 @@ int local_ota_start(void)
     return 0;
     
 }
-
 
 
 
