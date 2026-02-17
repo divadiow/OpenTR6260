@@ -192,11 +192,11 @@ int print_heapblock(char *taskname)
 		{
 			if(!taskname||strstr(pxBlock->taskname,taskname))
 			{
-				system_printf("%d:\t%s\t%s:%d,\t\tsize=%d\n", count,pxBlock->taskname,pxBlock->filename,(pxBlock->xBlockSize&~xBlockAllocatedBit)>>17,pxBlock->xBlockSize &HEAP_BLOCKSIZE_MASK);
+				system_printf("%d:\t%s\t%s:%d,\t\tsize=%d\n", count,pxBlock->taskname,pxBlock->filename,(pxBlock->xBlockSize&~xBlockAllocatedBit)>>17,pxBlock->xBlockSize );
 				count++;
 			}
 			
-			total_malloc_size+=pxBlock->xBlockSize &HEAP_BLOCKSIZE_MASK;
+			total_malloc_size+=pxBlock->xBlockSize ;
 			pxBlock=pxBlock->pxNextFreeBlock;
 		}	
 		
@@ -419,7 +419,7 @@ void *pvPortReMalloc(void *pvOld, size_t xNewSize)
     pxLink = (void *)puc;
     configASSERT((pxLink->xBlockSize & xBlockAllocatedBit) != 0);
 #ifdef HEAP_MEMORY_TRACE
-	xOldSize = ( ( pxLink->xBlockSize & ~xBlockAllocatedBit ) & HEAP_BLOCKSIZE_MASK );
+	xOldSize = ( ( pxLink->xBlockSize & ~xBlockAllocatedBit )  );
     /* pxLink->xBlockSize includes the heap header size (xHeapStructSize). pvOld points to the user payload. */
     size_t xOldPayload = ( xOldSize > xHeapStructSize ) ? ( xOldSize - xHeapStructSize ) : 0;
     size_t xCopyLen    = ( xOldPayload <= xNewSize ) ? xOldPayload : xNewSize;
@@ -431,7 +431,7 @@ void *pvPortReMalloc(void *pvOld, size_t xNewSize)
 
     if ((pxLink->xBlockSize & xBlockAllocatedBit) != 0) {
         if (pxLink->pxNextFreeBlock == NULL) {
-            xOldSize = ( ( pxLink->xBlockSize & ~xBlockAllocatedBit ) & HEAP_BLOCKSIZE_MASK );
+            xOldSize = ( ( pxLink->xBlockSize & ~xBlockAllocatedBit )  );
             /* pxLink->xBlockSize includes the heap header size (xHeapStructSize). pvOld points to the user payload. */
             size_t xOldPayload = ( xOldSize > xHeapStructSize ) ? ( xOldSize - xHeapStructSize ) : 0;
             size_t xCopyLen    = ( xOldPayload <= xNewSize ) ? xOldPayload : xNewSize;
@@ -707,7 +707,7 @@ int mem_is_vaild(BlockLink_t * pLink, HeapRegion_t *pxHeapRegion)
 {
 	size_t xDefinedRegions=0;
 #ifdef HEAP_MEMORY_TRACE
-	size_t blocksize_mask=~xBlockAllocatedBit&HEAP_BLOCKSIZE_MASK;
+	size_t blocksize_mask=~xBlockAllocatedBit;
 #else
 	size_t blocksize_mask=~xBlockAllocatedBit;
 #endif
@@ -796,7 +796,7 @@ void vHeapCheckInTaskSwitch()
 				nds32_heap_overflow(xTaskGetCurrentTaskHandle(),2);
 			}
 #ifdef HEAP_MEMORY_TRACE
-			pLink=(BlockLink_t *)((size_t)pLink+(size_t)(pLink->xBlockSize&~xBlockAllocatedBit&HEAP_BLOCKSIZE_MASK));
+			pLink=(BlockLink_t *)((size_t)pLink+(size_t)(pLink->xBlockSize&~xBlockAllocatedBit));
 #else	
 			pLink=(BlockLink_t *)((size_t)pLink+(size_t)(pLink->xBlockSize&~xBlockAllocatedBit));
 #endif
