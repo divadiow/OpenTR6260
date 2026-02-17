@@ -76,10 +76,9 @@ void system_task_init()
 				&g_sys_task_tcb);
 
 	if (g_sys_task_handle) 
-		system_printf("[%s, %d] task creation succeed!(0x%x)\n", __func__, __LINE__, g_sys_task_handle);	
+		system_printf("[%s, %d] task creation succeed!(0x%x)\n", __func__, __LINE__, (unsigned int)g_sys_task_handle);
 	else
-		system_printf("[%s, %d] task creation failed!(0x%x)
-", __func__, __LINE__, (unsigned int)g_sys_task_handle);
+		system_printf("[%s, %d] task creation failed!(0x%x)\n", __func__, __LINE__, (unsigned int)g_sys_task_handle);
 }
 
 bool system_schedule_work_queue_from_isr( sys_task_func func , void* param , sys_task_func_cb cb )
