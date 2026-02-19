@@ -124,16 +124,63 @@ char otaHal_init(void)
 
 	if (partion_info_get(PARTION_NAME_DATA_OTA, &ota_info.s_addr, &ota_info.max_len) != 0)
 	{
-		{
-			char nv_part[16];
-			int n = ef_get_env_blob(NV_OTA_ADDR, nv_part, sizeof(nv_part) - 1, NULL);
-			if (n > 0) {
-				nv_part[(n < (int)sizeof(nv_part)) ? n : (sizeof(nv_part) - 1)] = 0;
-				partion = (int)strtoul(nv_part, NULL, 10);
-			} else {
-				partion = 1;
+		
+{
+	unsigned char nv_raw[16];
+	int n = ef_get_env_blob(NV_OTA_ADDR, nv_raw, sizeof(nv_raw), NULL);
+
+	/* Default to partition 1 if missing/invalid. This is safety-critical during OTA. */
+	partion = 1;
+
+	if (n > 0) {
+		/* 1) Prefer ASCII (digits with optional NUL), for forward compatibility */
+		int i;
+		int ascii_len = 0;
+		while (ascii_len < n && nv_raw[ascii_len] != 0) {
+			ascii_len++;
+		}
+
+		if (ascii_len > 0) {
+			int all_digits = 1;
+			for (i = 0; i < ascii_len; i++) {
+				if (nv_raw[i] < '0' || nv_raw[i] > '9') {
+					all_digits = 0;
+					break;
+				}
+			}
+			if (all_digits) {
+				char tmp[16];
+				int copy_len = (ascii_len < (int)sizeof(tmp) - 1) ? ascii_len : ((int)sizeof(tmp) - 1);
+				memcpy(tmp, nv_raw, (size_t)copy_len);
+				tmp[copy_len] = 0;
+				{
+					unsigned long v = strtoul(tmp, NULL, 10);
+					if (v == 1 || v == 2) {
+						partion = (int)v;
+					}
+				}
 			}
 		}
+
+		/* 2) Backward-compat: accept old binary encodings (1 byte or 4 bytes LE) */
+		if (partion != 1 && partion != 2) {
+			if (n == 1 && (nv_raw[0] == 1 || nv_raw[0] == 2)) {
+				partion = (int)nv_raw[0];
+			} else if (n >= 4) {
+				unsigned int v = 0;
+				memcpy(&v, nv_raw, 4);
+				if (v == 1 || v == 2) {
+					partion = (int)v;
+				}
+			}
+		}
+
+		/* Final guard */
+		if (partion != 1 && partion != 2) {
+			partion = 1;
+		}
+	}
+}
 
 		if(partion == 2)
 		{

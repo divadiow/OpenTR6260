@@ -1335,10 +1335,10 @@ sys_err_t wifi_set_sta_by_nv(wifi_nv_info_t *nv_info)
     if (!nv_info->sta_ssid[0])
         return SYS_ERR;
 
-    strlcpy((char *)sta_config.sta.ssid, nv_info->sta_ssid, sizeof(sta_config.sta.ssid));
+        strlcpy((char *)sta_config.sta.ssid, nv_info->sta_ssid, sizeof(sta_config.sta.ssid));
     memcpy(sta_config.sta.bssid, nv_info->sta_bssid, sizeof(nv_info->sta_bssid));
     sta_config.sta.channel = nv_info->channel;
-    strlcpy((char *)sta_config.sta.password, nv_info->sta_pwd, sizeof(sta_config.sta.password));
+        strlcpy((char *)sta_config.sta.password, nv_info->sta_pwd, sizeof(sta_config.sta.password));
 
     return wifi_start_station(&sta_config);
 }
